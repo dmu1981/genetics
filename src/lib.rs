@@ -84,8 +84,11 @@ impl From<serde_json::Error> for GenomeError {
 }
 
 impl<T: Serialize + for<'a> Deserialize<'a>> GenePool<T> {
-    pub fn new(population_size: u32, sorting_order: FitnessSortingOrder) -> Result<GenePool<T>, GenomeError> {
-        let url = "amqp://guest:guest@192.168.178.44:5672".to_owned();
+    pub fn new(population_size: u32, 
+               sorting_order: FitnessSortingOrder,
+               url: String
+               ) -> Result<GenePool<T>, GenomeError> {
+        //let url = "amqp://guest:guest@192.168.178.44:5672".to_owned();
         let pending_queue = "pending_genomes".to_owned();
         let ready_queue = "ready_genomes".to_owned();
         let best_queue = "best_genomes".to_owned();
