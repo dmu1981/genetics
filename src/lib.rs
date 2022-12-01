@@ -3,10 +3,16 @@ use amiquip::{
     Channel, Connection, Delivery, Exchange, Get,
     Publish, QueueDeclareOptions,
 };
-
+use std::convert::Infallible;
+use std::io::Write;
+use std::time::SystemTime;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use std::{time::Duration, io};
 use uuid::Uuid;
+use std::fs::File;
+use std::io::prelude::*;
+use chrono::offset::Utc;
+use chrono::DateTime;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GenomeMessage<T>
@@ -81,6 +87,13 @@ impl From<serde_json::Error> for GenomeError {
     fn from(_: serde_json::Error) -> GenomeError {
         GenomeError {}
     }
+}
+
+impl From<std::io::Error> for GenomeError {
+  fn from(err: std::io::Error) -> GenomeError {
+    println!("{:?}", err);
+    GenomeError {}
+}
 }
 
 impl<T: Serialize + for<'a> Deserialize<'a>> GenePool<T> {
@@ -182,7 +195,6 @@ impl<T: Serialize + for<'a> Deserialize<'a>> GenePool<T> {
 
         // Serialize the payload
         let payload = serde_json::to_string(&genome)?;
-        //println!("Pushing {} to {}", payload, queue);
 
         // Publish a message to the "hello" queue.
         //exchange
@@ -215,14 +227,75 @@ impl<T: Serialize + for<'a> Deserialize<'a>> GenePool<T> {
     }
 
     pub fn ack_one(&mut self, gene: GenomeAck<T>) -> Result<(), GenomeError> {
-        self.push_to_queue(&self.rmq_ready_queue.clone(), &gene.message)
-            ?;
+      gene.delivery.ack(&gene.channel)?;
+
+      let res = self.push_to_queue(&self.rmq_ready_queue.clone(), &gene.message);
+      match res {
+        Ok(_) => {
+          //println!("ack_one: Ok");
+        },
+        Err(_) => {
+          //println!("ack_one: Err");
+        }
+      }
 
         // If the program crashes here, we will have a dupliacated message in both queues
 
-        gene.delivery.ack(&gene.channel)?;
 
+
+        
         Ok(())
+    }
+
+    pub fn dump(&mut self) -> Result<(), GenomeError> {
+      self.dump_queue(&self.rmq_pending_queue.clone())?;
+      self.dump_queue(&self.rmq_ready_queue.clone())?;
+      self.dump_queue(&self.rmq_best_queue.clone())?;
+      Ok(())
+    }
+
+    fn dump_queue(&mut self, queue: &String) -> Result<(), GenomeError> {
+      let all =self.poll_queue(queue)?;
+      let str = serde_json::to_string(&all)?;
+
+      let system_time = SystemTime::now();
+      let datetime: DateTime<Utc> = system_time.into();
+      let fname: String = datetime.format("%d_%m_%Y_%H_%M").to_string();
+      let path = "genetics_".to_string() + fname.as_str() + "_" + queue + ".json";
+      println!("{}", path);
+      let mut file = File::create("genetics_".to_string() + fname.as_str() + "_" + queue + ".json")?;
+      file.write_all(str.as_bytes())?;
+
+      Ok(())
+    }
+    
+    fn poll_queue(&mut self, queue: &String) -> Result<Vec<GenomeMessage<T>>, GenomeError> {
+      let mut result = Vec::<GenomeMessage<T>>::new();
+
+      // Open a channel - None says let the library choose the channel ID.*/
+      let channel = self.open_channel()?;
+
+      // Declare the queue.
+      let mut options = QueueDeclareOptions::default();
+      options.durable = true;
+
+      let queue = channel.queue_declare(queue, options)?;
+
+      loop {
+        let res = queue.get(false)?;
+        match res {
+          Some(msg) => {
+            let body = String::from_utf8_lossy(&msg.delivery.body);
+            let genome: GenomeMessage<T> = serde_json::from_str(&body)?;
+            result.push(genome);
+          },
+          None => {
+            break;
+          }
+        }
+      }
+
+      Ok(result)
     }
 
     pub fn poll_one(&mut self) -> Result<GenomeAck<T>, GenomeError> {
@@ -292,13 +365,14 @@ impl<T: Serialize + for<'a> Deserialize<'a>> GenePool<T> {
 
                     match genome.fitness {
                       Some(fitness) => {
-                        println!(
-                          "Syncing Genome {} out of {} into pool... Generation {}, fitness was {}",
+                        print!(
+                          "Syncing Genome {} out of {} into pool... Generation {}, fitness was {}\r",
                           deliveries.len(),
                           self.population_size,
                           genome.generation,
                           fitness
                         );
+                        io::stdout().flush().unwrap();
                       },
                       None => {
                         println!("Syncing Genome without fitness into pool, something was wrong!");
