@@ -298,6 +298,10 @@ impl<T: Serialize + for<'a> Deserialize<'a>> GenePool<T> {
       Ok(result)
     }
 
+    pub fn poll_best(&mut self) -> Result<Vec<GenomeMessage<T>>, GenomeError> {
+      self.poll_queue(&self.rmq_best_queue.clone())
+    }
+
     pub fn poll_one(&mut self) -> Result<GenomeAck<T>, GenomeError> {
         // Open a channel - None says let the library choose the channel ID.*/
         let channel = self.open_channel()?;
