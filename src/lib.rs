@@ -1,16 +1,13 @@
 #![allow(dead_code)]
-use amiquip::{
-    Channel, Connection, Delivery, Exchange, Get,
-    Publish, QueueDeclareOptions,
-};
-use std::convert::Infallible;
+use amiquip::{Channel, Connection, Delivery, Exchange, Get, Publish};
+//use std::convert::Infallible;
+use serde::{Deserialize, Serialize};
+use std::fs::File;
 use std::io::Write;
 use std::time::SystemTime;
-use serde::{Deserialize, Serialize};
-use std::{time::Duration, io};
+use std::{io, time::Duration};
 use uuid::Uuid;
-use std::fs::File;
-use std::io::prelude::*;
+//use std::io::prelude::*;
 use chrono::offset::Utc;
 use chrono::DateTime;
 
@@ -35,7 +32,6 @@ where
 }
 
 pub struct Genome<T: Serialize + for<'a> Deserialize<'a>> {
-    
     pub message: GenomeMessage<T>,
 }
 
@@ -56,11 +52,11 @@ impl<T: Serialize + for<'a> Deserialize<'a>> Genome<T> {
     }
 }
 
-pub type PopulationHandler<T> = fn(genes: &Vec<Genome<T>>) -> Result<Vec<Genome<T>>, GenomeError>;
+pub type PopulationHandler<T> = fn(genes: &[Genome<T>]) -> Result<Vec<Genome<T>>, GenomeError>;
 
 pub enum FitnessSortingOrder {
-  LessIsBetter,
-  MoreIsBetter,
+    LessIsBetter,
+    MoreIsBetter,
 }
 
 pub struct GenePool<T: Serialize + for<'a> Deserialize<'a>> {
@@ -90,17 +86,18 @@ impl From<serde_json::Error> for GenomeError {
 }
 
 impl From<std::io::Error> for GenomeError {
-  fn from(err: std::io::Error) -> GenomeError {
-    println!("{:?}", err);
-    GenomeError {}
-}
+    fn from(err: std::io::Error) -> GenomeError {
+        println!("{:?}", err);
+        GenomeError {}
+    }
 }
 
 impl<T: Serialize + for<'a> Deserialize<'a>> GenePool<T> {
-    pub fn new(population_size: u32, 
-               sorting_order: FitnessSortingOrder,
-               url: String
-               ) -> Result<GenePool<T>, GenomeError> {
+    pub fn new(
+        population_size: u32,
+        sorting_order: FitnessSortingOrder,
+        url: String,
+    ) -> Result<GenePool<T>, GenomeError> {
         //let url = "amqp://guest:guest@192.168.178.44:5672".to_owned();
         let pending_queue = "pending_genomes".to_owned();
         let ready_queue = "ready_genomes".to_owned();
@@ -150,39 +147,48 @@ impl<T: Serialize + for<'a> Deserialize<'a>> GenePool<T> {
 
         // Declare the "hello" queue.
         {
-          let mut options = QueueDeclareOptions::default();
-          options.durable = true;
+            //let mut options = QueueDeclareOptions::default();
+            //options.durable = true;
+            let options = amiquip::QueueDeclareOptions {
+                durable: true,
+                ..Default::default()
+            };
 
-          let queue =
-              channel.queue_declare(&self.rmq_pending_queue, options)?;
+            let queue = channel.queue_declare(&self.rmq_pending_queue, options)?;
 
-          queue.purge()?;
+            queue.purge()?;
         }
 
         {
-          let mut options = QueueDeclareOptions::default();
-          options.durable = true;
+            //let mut options = QueueDeclareOptions::default();
+            //options.durable = true;
+            let options = amiquip::QueueDeclareOptions {
+                durable: true,
+                ..Default::default()
+            };
 
-          let queue2 =
-              channel.queue_declare(&self.rmq_ready_queue, options)?;
+            let queue2 = channel.queue_declare(&self.rmq_ready_queue, options)?;
 
-          queue2.purge()?;
+            queue2.purge()?;
         }
 
         {
-          let mut options = QueueDeclareOptions::default();
-          options.durable = true;
+            //let mut options = QueueDeclareOptions::default();
+            //options.durable = true;
+            let options = amiquip::QueueDeclareOptions {
+                durable: true,
+                ..Default::default()
+            };
 
-          let queue3 =
-              channel.queue_declare(&self.rmq_best_queue, options)?;
+            let queue3 = channel.queue_declare(&self.rmq_best_queue, options)?;
 
-          queue3.purge()?;
+            queue3.purge()?;
         }
 
         Ok(())
     }
 
-   fn push_to_queue(
+    fn push_to_queue(
         &mut self,
         queue: &String,
         genome: &GenomeMessage<T>,
@@ -200,7 +206,11 @@ impl<T: Serialize + for<'a> Deserialize<'a>> GenePool<T> {
         //exchange
         //exchange.publish(Publish::new(payload.as_bytes(), queue, ))?;
         let properties = amiquip::AmqpProperties::default().with_delivery_mode(2);
-        exchange.publish(Publish::with_properties(payload.as_bytes(), queue, properties))?;
+        exchange.publish(Publish::with_properties(
+            payload.as_bytes(),
+            queue,
+            properties,
+        ))?;
 
         Ok(())
         //connection.close().unwrap();
@@ -217,8 +227,7 @@ impl<T: Serialize + for<'a> Deserialize<'a>> GenePool<T> {
         //genome.status = GenomeStatus::Pending;
 
         // Push into queue
-        self.push_to_queue(&self.rmq_pending_queue.clone(), &genome.message)
-            ?;
+        self.push_to_queue(&self.rmq_pending_queue.clone(), &genome.message)?;
 
         // Push into our internal list so we can track it
         self.genes.as_mut().unwrap().push(genome);
@@ -227,79 +236,81 @@ impl<T: Serialize + for<'a> Deserialize<'a>> GenePool<T> {
     }
 
     pub fn ack_one(&mut self, gene: GenomeAck<T>) -> Result<(), GenomeError> {
-      gene.delivery.ack(&gene.channel)?;
+        gene.delivery.ack(&gene.channel)?;
 
-      let res = self.push_to_queue(&self.rmq_ready_queue.clone(), &gene.message);
-      match res {
-        Ok(_) => {
-          //println!("ack_one: Ok");
-        },
-        Err(_) => {
-          //println!("ack_one: Err");
-        }
-      }
+        let _res = self.push_to_queue(&self.rmq_ready_queue.clone(), &gene.message);
+        /*match res {
+          Ok(_) => {
+            //println!("ack_one: Ok");
+          },
+          Err(_) => {
+            //println!("ack_one: Err");
+          }
+        }*/
 
         // If the program crashes here, we will have a dupliacated message in both queues
 
-
-
-        
         Ok(())
     }
 
     pub fn dump(&mut self) -> Result<(), GenomeError> {
-      self.dump_queue(&self.rmq_pending_queue.clone())?;
-      self.dump_queue(&self.rmq_ready_queue.clone())?;
-      self.dump_queue(&self.rmq_best_queue.clone())?;
-      Ok(())
+        self.dump_queue(&self.rmq_pending_queue.clone())?;
+        self.dump_queue(&self.rmq_ready_queue.clone())?;
+        self.dump_queue(&self.rmq_best_queue.clone())?;
+        Ok(())
     }
 
     fn dump_queue(&mut self, queue: &String) -> Result<(), GenomeError> {
-      let all =self.poll_queue(queue)?;
-      let str = serde_json::to_string(&all)?;
+        let all = self.poll_queue(queue)?;
+        let str = serde_json::to_string(&all)?;
 
-      let system_time = SystemTime::now();
-      let datetime: DateTime<Utc> = system_time.into();
-      let fname: String = datetime.format("%d_%m_%Y_%H_%M").to_string();
-      let path = "genetics_".to_string() + fname.as_str() + "_" + queue + ".json";
-      println!("{}", path);
-      let mut file = File::create("genetics_".to_string() + fname.as_str() + "_" + queue + ".json")?;
-      file.write_all(str.as_bytes())?;
+        let system_time = SystemTime::now();
+        let datetime: DateTime<Utc> = system_time.into();
+        let fname: String = datetime.format("%d_%m_%Y_%H_%M").to_string();
+        let path = "genetics_".to_string() + fname.as_str() + "_" + queue + ".json";
+        println!("{}", path);
+        let mut file =
+            File::create("genetics_".to_string() + fname.as_str() + "_" + queue + ".json")?;
+        file.write_all(str.as_bytes())?;
 
-      Ok(())
+        Ok(())
     }
-    
+
     fn poll_queue(&mut self, queue: &String) -> Result<Vec<GenomeMessage<T>>, GenomeError> {
-      let mut result = Vec::<GenomeMessage<T>>::new();
+        let mut result = Vec::<GenomeMessage<T>>::new();
 
-      // Open a channel - None says let the library choose the channel ID.*/
-      let channel = self.open_channel()?;
+        // Open a channel - None says let the library choose the channel ID.*/
+        let channel = self.open_channel()?;
 
-      // Declare the queue.
-      let mut options = QueueDeclareOptions::default();
-      options.durable = true;
+        // Declare the queue.
+        //let mut options = QueueDeclareOptions::default();
+        //options.durable = true;
+        let options = amiquip::QueueDeclareOptions {
+            durable: true,
+            ..Default::default()
+        };
 
-      let queue = channel.queue_declare(queue, options)?;
+        let queue = channel.queue_declare(queue, options)?;
 
-      loop {
-        let res = queue.get(false)?;
-        match res {
-          Some(msg) => {
-            let body = String::from_utf8_lossy(&msg.delivery.body);
-            let genome: GenomeMessage<T> = serde_json::from_str(&body)?;
-            result.push(genome);
-          },
-          None => {
-            break;
-          }
+        loop {
+            let res = queue.get(false)?;
+            match res {
+                Some(msg) => {
+                    let body = String::from_utf8_lossy(&msg.delivery.body);
+                    let genome: GenomeMessage<T> = serde_json::from_str(&body)?;
+                    result.push(genome);
+                }
+                None => {
+                    break;
+                }
+            }
         }
-      }
 
-      Ok(result)
+        Ok(result)
     }
 
     pub fn poll_best(&mut self) -> Result<Vec<GenomeMessage<T>>, GenomeError> {
-      self.poll_queue(&self.rmq_best_queue.clone())
+        self.poll_queue(&self.rmq_best_queue.clone())
     }
 
     pub fn poll_one(&mut self) -> Result<GenomeAck<T>, GenomeError> {
@@ -309,11 +320,14 @@ impl<T: Serialize + for<'a> Deserialize<'a>> GenePool<T> {
         let res: Option<Get>;
         {
             // Declare the "hello" queue.
-            let mut options = QueueDeclareOptions::default();
-            options.durable = true;
+            //let mut options = QueueDeclareOptions::default();
+            //options.durable = true;
+            let options = amiquip::QueueDeclareOptions {
+                durable: true,
+                ..Default::default()
+            };
 
-            let queue =
-                channel.queue_declare(&self.rmq_pending_queue, options)?;
+            let queue = channel.queue_declare(&self.rmq_pending_queue, options)?;
 
             res = queue.get(false)?;
         }
@@ -347,12 +361,15 @@ impl<T: Serialize + for<'a> Deserialize<'a>> GenePool<T> {
         loop {
             let res: Option<Get>;
             {
-                let mut options = QueueDeclareOptions::default();
-                options.durable = true;
+                //let mut options = QueueDeclareOptions::default();
+                //options.durable = true;
+                let options = amiquip::QueueDeclareOptions {
+                    durable: true,
+                    ..Default::default()
+                };
 
                 // Declare the "hello" queue.
-                let queue =
-                    channel.queue_declare(&self.rmq_ready_queue, options)?;
+                let queue = channel.queue_declare(&self.rmq_ready_queue, options)?;
 
                 res = queue.get(false)?;
             }
@@ -368,39 +385,42 @@ impl<T: Serialize + for<'a> Deserialize<'a>> GenePool<T> {
                     tokio::time::sleep(Duration::from_millis(5)).await;
 
                     match genome.fitness {
-                      Some(fitness) => {
-                        print!(
+                        Some(fitness) => {
+                            print!(
                           "Syncing Genome {} out of {} into pool... Generation {}, fitness was {}\r",
                           deliveries.len(),
                           self.population_size,
                           genome.generation,
                           fitness
                         );
-                        io::stdout().flush().unwrap();
-                      },
-                      None => {
-                        println!("Syncing Genome without fitness into pool, something was wrong!");
-                      }
-                    }                   
-                    
+                            io::stdout().flush().unwrap();
+                        }
+                        None => {
+                            println!(
+                                "Syncing Genome without fitness into pool, something was wrong!"
+                            );
+                        }
+                    }
 
-                    self.genes
-                        .as_mut()
-                        .unwrap()
-                        .push(Genome::<T>::sync(genome));
+                    self.genes.as_mut().unwrap().push(Genome::<T>::sync(genome));
 
                     if deliveries.len() as u32 == self.population_size {
-                        { 
+                        {
                             let mut genes = self.genes.take().unwrap();
                             /*let genes: &mut Vec<Genome<T>>;
                             {
                               let binding = self.genes.as_mut().expect("Should have genes");
                               genes = binding.as_mut();
                             }*/
-                            genes.sort_by(|a, b| 
-                            a.message.fitness.unwrap_or(99999.0).partial_cmp(&b.message.fitness.unwrap_or(99999.0)).unwrap_or(std::cmp::Ordering::Equal));
+                            genes.sort_by(|a, b| {
+                                a.message
+                                    .fitness
+                                    .unwrap_or(99999.0)
+                                    .partial_cmp(&b.message.fitness.unwrap_or(99999.0))
+                                    .unwrap_or(std::cmp::Ordering::Equal)
+                            });
                             if let FitnessSortingOrder::MoreIsBetter = self.sorting_order {
-                              genes.reverse();
+                                genes.reverse();
                             }
 
                             self.push_to_queue(&self.rmq_best_queue.clone(), &genes[0].message)?;
@@ -431,6 +451,3 @@ impl<T: Serialize + for<'a> Deserialize<'a>> GenePool<T> {
 }
 
 unsafe impl<T> Send for GenePool<T> where T: Serialize + for<'a> Deserialize<'a> {}
-
-
-
