@@ -103,18 +103,25 @@ impl<T: Serialize + for<'a> Deserialize<'a>> GenePool<T> {
         let ready_queue = "ready_genomes".to_owned();
         let best_queue = "best_genomes".to_owned();
         // Open connection.
-        let connection = Connection::insecure_open(&url)?;
-
-        Ok(GenePool {
-            sorting_order,
-            population_size,
-            rmq_url: url,
-            rmq_pending_queue: pending_queue,
-            rmq_ready_queue: ready_queue,
-            rmq_best_queue: best_queue,
-            genes: None,
-            connection,
-        })
+        let connection = Connection::insecure_open(&url);
+        match connection {
+          Err(err) => {
+            println!("{:?}", err);
+            Err(GenomeError { })
+          },
+          Ok(con) => {
+            Ok(GenePool {
+              sorting_order,
+              population_size,
+              rmq_url: url,
+              rmq_pending_queue: pending_queue,
+              rmq_ready_queue: ready_queue,
+              rmq_best_queue: best_queue,
+              genes: None,
+              connection: con,
+          })
+          }
+        }
     }
 
     fn open_channel(&mut self) -> Result<Channel, GenomeError> {
